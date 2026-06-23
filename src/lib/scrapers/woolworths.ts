@@ -143,7 +143,7 @@ export class WoolworthsScraper extends BaseScraper {
           if (!name) {
             const text = await article.getText();
             const lines = text.split('\n').filter((l) => l.trim());
-            name = lines.find((l) => l.length > 15 && !/^R\s*[\d,]+/.test(l)) || '';
+            name = lines.find((l) => l.length > 15 && !/^R[0-9 ,.]+/.test(l)) || '';
           }
 
           if (!name) continue;
@@ -156,7 +156,7 @@ export class WoolworthsScraper extends BaseScraper {
             priceText = (await priceEl.getText()).trim();
           } catch {
             const text = await article.getText();
-            const priceMatch = text.match(/R\s*[\d,]+(?:\.\d{2})?/);
+            const priceMatch = text.match(/R[0-9 ,.]+/);
             if (priceMatch) priceText = priceMatch[0];
           }
 
@@ -206,28 +206,31 @@ export class WoolworthsScraper extends BaseScraper {
 
   private async extractFromNextData(driver: WebDriver, _query: string): Promise<ProductResult[]> {
     try {
-      const results = await driver.executeScript(`
+      const results = await driver.executeAsyncScript(`
+        const callback = arguments[arguments.length - 1];
         try {
           const script = document.getElementById('__NEXT_DATA__');
-          if (!script || !script.textContent) return [];
+          if (!script || !script.textContent) { callback([]); return; }
           const data = JSON.parse(script.textContent);
           const queries = data?.props?.pageProps?.dehydratedState?.queries;
-          if (!queries || !Array.isArray(queries)) return [];
+          if (!queries || !Array.isArray(queries)) { callback([]); return; }
 
           for (const q of queries) {
             const items = q?.state?.data?.pages?.[0]?.productCatalogItems?.items;
             if (items && Array.isArray(items) && items.length > 0) {
-              return items.map(item => ({
+              const mapped = items.map(item => ({
                 name: item.name || '',
                 price: item.price?.amount,
                 priceValue: item.price?.amount,
-                imageUrl: item.image?.src ? 'https:' + item.image.src : '',
+                imageUrl: item.image?.src ? 'https://www.woolworths.co.za' + item.image.src : '',
                 url: item.url ? 'https://www.woolworths.co.za' + item.url : '',
               })).filter(p => p.name && p.priceValue > 0);
+              callback(mapped);
+              return;
             }
           }
-          return [];
-        } catch(e) { return []; }
+          callback([]);
+        } catch(e) { callback([]); }
       `);
 
       if (!results || !Array.isArray(results) || results.length === 0) return [];

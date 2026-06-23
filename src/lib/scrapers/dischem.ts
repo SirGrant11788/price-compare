@@ -28,11 +28,12 @@ function release(): void {
   }
 }
 
+// No backslashes in regex to avoid GitHub API double-escaping
 function isValidProductName(name: string): boolean {
   if (!name || name.length < 3) return false;
-  if (/off\s+for\s+members/i.test(name)) return false;
-  if (/^\d+%\s*off/i.test(name.trim())) return false;
-  if (/^\d+%\s*/i.test(name.trim())) return false;
+  if (/off +for +members/i.test(name)) return false;
+  if (/^[0-9]+% *off/i.test(name.trim())) return false;
+  if (/^[0-9]+% */i.test(name.trim())) return false;
   return true;
 }
 
@@ -114,7 +115,7 @@ export class DischemScraper extends BaseScraper {
 
       await this.sleep(3000);
 
-      // Try __NEXT_DATA__ extraction first (JSON-LD approach)
+      // Try JSON-LD extraction first
       const jsonProducts = await this.extractFromJson(driver, query);
       if (jsonProducts.length > 0) {
         return jsonProducts;
@@ -155,7 +156,7 @@ export class DischemScraper extends BaseScraper {
               priceText = await regularPrice.getText();
             } catch {
               const text = await container.getText();
-              const priceMatch = text.match(/R\s*[\d,]+(?:\.\d{2})?/);
+              const priceMatch = text.match(/R[0-9 ,.]+/);
               if (priceMatch) priceText = priceMatch[0];
             }
           }
@@ -212,10 +213,10 @@ export class DischemScraper extends BaseScraper {
                 l.length > 5 &&
                 !l.includes('Special') &&
                 !l.includes('Save') &&
-                !/off\s+for\s+members/i.test(l) &&
-                !/^\d+%\s*off/i.test(l)
+                !/off +for +members/i.test(l) &&
+                !/^[0-9]+% *off/i.test(l)
             );
-            const priceLine = lines.find((l) => /R\s*[\d,]+(?:\.\d{2})?/.test(l));
+            const priceLine = lines.find((l) => /R[0-9 ,.]+/.test(l));
 
             if (nameLine && priceLine && isValidProductName(nameLine)) {
               const priceValue = this.normalizePrice(priceLine);
@@ -244,28 +245,31 @@ export class DischemScraper extends BaseScraper {
 
   private async extractFromJson(driver: WebDriver, query: string): Promise<ProductResult[]> {
     try {
-      const results = await driver.executeScript(`
+      const results = await driver.executeAsyncScript(`
+        const callback = arguments[arguments.length - 1];
         try {
           const data = window.__NEXT_DATA__ || JSON.parse(document.getElementById('__NEXT_DATA__')?.textContent || '{}');
-          if (!data || !data.props) return [];
+          if (!data || !data.props) { callback([]); return; }
           const queries = data.props.pageProps?.dehydratedState?.queries;
-          if (!queries) return [];
+          if (!queries) { callback([]); return; }
           for (const q of queries) {
             const items = q?.state?.data?.pages?.[0]?.productCatalogItems?.items
               || q?.state?.data?.items
               || q?.state?.data?.products;
             if (items && Array.isArray(items) && items.length > 0) {
-              return items.map(item => ({
+              const mapped = items.map(item => ({
                 name: item.name || '',
                 price: item.price?.amount || item.price,
                 priceValue: item.price?.amount || (typeof item.price === 'number' ? item.price : parseFloat(String(item.price).replace(/[^0-9.]/g, ''))),
                 imageUrl: item.image?.src || item.image || '',
                 url: item.url || item.slug || '',
               })).filter(p => p.name && p.priceValue > 0);
+              callback(mapped);
+              return;
             }
           }
-          return [];
-        } catch(e) { return []; }
+          callback([]);
+        } catch(e) { callback([]); }
       `);
 
       if (!results || !Array.isArray(results) || results.length === 0) return [];
