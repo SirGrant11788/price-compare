@@ -1,0 +1,42 @@
+services:
+  chrome:
+    image: selenium/standalone-chrome:latest
+    container_name: price-compare-chrome
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "/opt/bin/check-grid.sh", "--host", "0.0.0.0", "--port", "4444"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    environment:
+      TZ: Africa/Johannesburg
+      SE_NODE_MAX_SESSIONS: 5
+      SE_NODE_SESSION_TIMEOUT: 300
+      SE_VNC_NO_PASSWORD: 1
+    shm_size: 2gb
+    ports:
+      - "4444:4444"
+      - "7900:7900"
+
+  redis:
+    image: redis:7-alpine
+    container_name: price-compare-redis
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    environment:
+      TZ: Africa/Johannesburg
+    volumes:
+      - redis-data:/data
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes --maxmemory 200mb --maxmemory-policy allkeys-lru
+
+volumes:
+  redis-data:
+    driver: local
