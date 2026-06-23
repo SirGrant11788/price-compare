@@ -4,16 +4,10 @@ import type { ComparisonGroup } from '@/lib/fuzzy';
 
 const STORE_NAMES = ['Checkers', 'Dis-Chem', 'Clicks', 'Woolworths'];
 const STORE_COLORS: Record<string, string> = {
-  'Checkers': 'bg-green-600',
-  'Dis-Chem': 'bg-blue-600',
-  'Clicks': 'bg-purple-600',
-  'Woolworths': 'bg-orange-600',
-};
-const STORE_LOGOS: Record<string, string> = {
-  'Checkers': 'CKS',
-  'Dis-Chem': 'DCM',
-  'Clicks': 'CLK',
-  'Woolworths': 'WWR',
+  'Checkers': '#16a34a',
+  'Dis-Chem': '#2563eb',
+  'Clicks': '#9333ea',
+  'Woolworths': '#ea580c',
 };
 
 interface ComparisonTableProps {
@@ -29,9 +23,7 @@ export default function ComparisonTable({ groups, query }: ComparisonTableProps)
         <p className="text-lg text-gray-500">
           No products found for &ldquo;{query}&rdquo;
         </p>
-        <p className="mt-1 text-sm text-gray-400">
-          Try a different search term
-        </p>
+        <p className="mt-1 text-sm text-gray-400">Try a different search term</p>
       </div>
     );
   }
@@ -40,18 +32,15 @@ export default function ComparisonTable({ groups, query }: ComparisonTableProps)
     <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm">
       {/* Header row */}
       <div className="flex border-b bg-gray-50">
-        <div className="flex w-12 shrink-0 items-center justify-center border-r py-3 text-xs font-medium text-gray-400">
-          #
-        </div>
+        <div className="flex w-10 shrink-0 items-center justify-center py-3 text-xs font-medium text-gray-400">#</div>
         {STORE_NAMES.map((store) => (
           <div
             key={store}
-            className={`flex-1 border-r px-3 py-3 text-center text-sm font-semibold uppercase tracking-wide last:border-r-0 ${
-              STORE_COLORS[store]?.replace('bg-', 'text-') ?? 'text-gray-600'
-            }`}
+            className="flex-1 border-r px-2 py-3 text-center text-sm font-bold last:border-r-0"
+            style={{ color: STORE_COLORS[store] ?? '#666' }}
           >
             <span className="hidden sm:inline">{store}</span>
-            <span className="sm:hidden">{STORE_LOGOS[store] ?? store.slice(0, 3)}</span>
+            <span className="sm:hidden">{store.slice(0, 4)}</span>
           </div>
         ))}
       </div>
@@ -65,7 +54,6 @@ export default function ComparisonTable({ groups, query }: ComparisonTableProps)
 }
 
 function ProductRow({ group, index }: { group: ComparisonGroup; index: number }) {
-  // Find the cheapest price across stores for this group
   const prices = Object.values(group.byStore)
     .filter((p): p is NonNullable<typeof p> => p !== null)
     .map((p) => p.priceValue);
@@ -74,12 +62,13 @@ function ProductRow({ group, index }: { group: ComparisonGroup; index: number })
   return (
     <div className="flex border-b border-gray-100 transition hover:bg-blue-50/30 last:border-b-0">
       {/* Row number */}
-      <div className="flex w-12 shrink-0 items-start justify-center border-r py-4 pt-5 text-xs font-mono text-gray-400">
+      <div className="flex w-10 shrink-0 items-start justify-center border-r py-4 pt-5 text-xs font-mono text-gray-400">
         {index}
       </div>
 
       {STORE_NAMES.map((store) => {
         const product = group.byStore[store];
+
         if (!product) {
           return (
             <div
@@ -96,11 +85,21 @@ function ProductRow({ group, index }: { group: ComparisonGroup; index: number })
         return (
           <div
             key={store}
-            className="relative flex flex-1 flex-col gap-2 border-r p-3 last:border-r-0"
+            className={`relative flex flex-1 flex-col gap-2 border-r p-3 last:border-r-0 ${
+              isCheapest ? 'bg-green-50/60' : ''
+            }`}
           >
-            {/* Product image */}
+            {isCheapest && (
+              <div className="absolute -right-px -top-px z-10">
+                <span className="inline-flex items-center gap-1 rounded-bl-lg rounded-tr-lg bg-green-600 px-2 py-0.5 text-[10px] font-bold text-white shadow-sm">
+                  BEST
+                </span>
+              </div>
+            )}
+
+            {/* Image */}
             {product.imageUrl && (
-              <div className="flex h-16 w-full items-center justify-center overflow-hidden rounded-md bg-gray-50">
+              <div className="flex h-14 w-full items-center justify-center overflow-hidden rounded-md bg-gray-50">
                 <img
                   src={product.imageUrl}
                   alt={product.name}
@@ -110,7 +109,7 @@ function ProductRow({ group, index }: { group: ComparisonGroup; index: number })
               </div>
             )}
 
-            {/* Product name */}
+            {/* Name */}
             <div className="min-h-[2.5rem]">
               <div className="line-clamp-2 text-xs leading-snug text-gray-900">
                 {product.url ? (
@@ -128,33 +127,27 @@ function ProductRow({ group, index }: { group: ComparisonGroup; index: number })
               </div>
             </div>
 
-            {/* Price row */}
+            {/* Price */}
             <div className="flex items-center justify-between gap-1">
               <span
                 className={`text-base font-bold ${
-                  isCheapest ? 'text-green-600' : 'text-gray-900'
+                  isCheapest ? 'text-green-700' : 'text-gray-900'
                 }`}
               >
                 {product.price}
               </span>
-              {isCheapest && (
-                <span className="rounded bg-green-100 px-1.5 py-0.5 text-[10px] font-medium text-green-700">
-                  BEST
-                </span>
-              )}
             </div>
 
-            {/* Stock status */}
+            {/* Stock */}
             {!product.inStock && (
               <div className="text-[11px] text-red-500">Out of stock</div>
             )}
 
-            {/* Store badge (mobile) */}
+            {/* Store badge (mobile only) */}
             <div className="mt-1 sm:hidden">
               <span
-                className={`rounded px-1.5 py-0.5 text-[10px] font-medium text-white ${
-                  STORE_COLORS[store] ?? 'bg-gray-500'
-                }`}
+                className="rounded px-1.5 py-0.5 text-[10px] font-medium text-white"
+                style={{ backgroundColor: STORE_COLORS[store] ?? '#666' }}
               >
                 {store}
               </span>

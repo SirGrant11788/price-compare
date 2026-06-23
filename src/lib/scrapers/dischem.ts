@@ -6,7 +6,6 @@ import type { ProductResult, ScraperResult } from '@/types';
 const SELENIUM_URL = process.env.SELENIUM_URL || 'http://localhost:4444';
 const MAX_CONCURRENT_SCRAPES = parseInt(process.env.MAX_CONCURRENT_SCRAPES || '3', 10);
 
-// ── Concurrency semaphore ─────────────────────────────────────────────────────
 let activeScrapes = 0;
 const queue: Array<() => void> = [];
 
@@ -27,6 +26,14 @@ function release(): void {
   } else {
     activeScrapes--;
   }
+}
+
+function isValidProductName(name: string): boolean {
+  if (!name || name.length < 3) return false;
+  if (/off\s+for\s+members/i.test(name)) return false;
+  if (/^\d+%\s*off/i.test(name.trim())) return false;
+  if (/^\d+%\s*/i.test(name.trim())) return false;
+  return true;
 }
 
 export class DischemScraper extends BaseScraper {
@@ -66,6 +73,8 @@ export class DischemScraper extends BaseScraper {
         .setChromeOptions(options)
         .build();
 
+      driver.manage().setTimeouts({ pageLoad: 20000, script: 10000, implicit: 5000 });
+
       await driver.executeScript(
         "Object.defineProperty(navigator, 'webdriver', { get: () => undefined })"
       );
@@ -74,7 +83,6 @@ export class DischemScraper extends BaseScraper {
       console.error(`[Dis-Chem] Navigating: ${searchUrl}`);
       await driver.get(searchUrl);
 
-      // Accept cookie banner if present
       try {
         const acceptBtn = await driver.findElement(By.css('button[aria-label*="Accept"], .accept-cookies, #cookie-accept'));
         await acceptBtn.click();
@@ -83,14 +91,12 @@ export class DischemScraper extends BaseScraper {
         // No cookie banner
       }
 
-      // Wait for product list to render
       try {
         await driver.wait(
           until.elementLocated(By.css('li.item.product, li.product-item, ol.products.list.items li')),
           30000
         );
       } catch {
-        // Try broader selector
         try {
           await driver.wait(
             until.elementLocated(By.css('[class*="product"][class*="item"], .product-item')),
@@ -108,7 +114,13 @@ export class DischemScraper extends BaseScraper {
 
       await this.sleep(3000);
 
-      // Collect product containers
+      // Try __NEXT_DATA__ extraction first (JSON-LD approach)
+      const jsonProducts = await this.extractFromJson(driver, query);
+      if (jsonProducts.length > 0) {
+        return jsonProducts;
+      }
+
+      // Fallback to DOM extraction
       const containers = await driver.findElements(
         By.css('li.item.product, li.product-item, ol.products.list.items > li')
       );
@@ -118,7 +130,6 @@ export class DischemScraper extends BaseScraper {
 
       for (const container of containers) {
         try {
-          // Product name — from product-item-link or img alt
           let name = '';
           try {
             const linkEl = await container.findElement(By.css('a.product-item-link'));
@@ -132,9 +143,8 @@ export class DischemScraper extends BaseScraper {
             }
           }
 
-          if (!name) continue;
+          if (!name || !isValidProductName(name)) continue;
 
-          // Price — try special price first, then regular price
           let priceText = '';
           try {
             const specialPrice = await container.findElement(By.css('.special-price .price, .price-box .special-price .price'));
@@ -144,7 +154,6 @@ export class DischemScraper extends BaseScraper {
               const regularPrice = await container.findElement(By.css('.price, .price-box .price, span.price'));
               priceText = await regularPrice.getText();
             } catch {
-              // Try regex from container text
               const text = await container.getText();
               const priceMatch = text.match(/R\s*[\d,]+(?:\.\d{2})?/);
               if (priceMatch) priceText = priceMatch[0];
@@ -153,9 +162,8 @@ export class DischemScraper extends BaseScraper {
 
           if (!priceText) continue;
           const priceValue = this.normalizePrice(priceText);
-          if (priceValue === 0) continue;
+          if (priceValue === 0 || !isFinite(priceValue)) continue;
 
-          // Product URL
           let url = '';
           try {
             const linkEl = await container.findElement(By.css('a.product-item-link'));
@@ -164,19 +172,14 @@ export class DischemScraper extends BaseScraper {
             try {
               const linkEl = await container.findElement(By.css('a[href*="/"]'));
               url = await linkEl.getAttribute('href');
-            } catch {
-              // no URL
-            }
+            } catch {}
           }
 
-          // Image
           let imageUrl = '';
           try {
             const imgEl = await container.findElement(By.css('img.product-image-photo'));
             imageUrl = await imgEl.getAttribute('src');
-          } catch {
-            // no image
-          }
+          } catch {}
 
           products.push({
             name,
@@ -192,9 +195,9 @@ export class DischemScraper extends BaseScraper {
         }
       }
 
-      // Fallback: if containers approach failed, try extracting directly from list items
+      // Fallback: text extraction if DOM approach found nothing
       if (products.length === 0) {
-        console.error('[Dis-Chem] Fallback extraction mode');
+        console.error('[Dis-Chem] Fallback text extraction mode');
         const items = await driver.findElements(By.css('li.item.product, li.product-item'));
 
         for (const item of items) {
@@ -202,15 +205,21 @@ export class DischemScraper extends BaseScraper {
             const text = await item.getText();
             const lines = text.split('\n').filter((l) => l.trim());
 
-            // Try to find name and price from text
             const nameLine = lines.find(
-              (l) => !l.startsWith('R ') && !l.startsWith('R') && l.length > 5 && !l.includes('Special') && !l.includes('Save')
+              (l) =>
+                !l.startsWith('R ') &&
+                !l.startsWith('R') &&
+                l.length > 5 &&
+                !l.includes('Special') &&
+                !l.includes('Save') &&
+                !/off\s+for\s+members/i.test(l) &&
+                !/^\d+%\s*off/i.test(l)
             );
             const priceLine = lines.find((l) => /R\s*[\d,]+(?:\.\d{2})?/.test(l));
 
-            if (nameLine && priceLine) {
+            if (nameLine && priceLine && isValidProductName(nameLine)) {
               const priceValue = this.normalizePrice(priceLine);
-              if (priceValue > 0) {
+              if (priceValue > 0 && isFinite(priceValue)) {
                 products.push({
                   name: nameLine.trim(),
                   price: priceLine.trim(),
@@ -221,9 +230,7 @@ export class DischemScraper extends BaseScraper {
                 });
               }
             }
-          } catch {
-            // skip
-          }
+          } catch {}
         }
       }
 
@@ -232,6 +239,48 @@ export class DischemScraper extends BaseScraper {
       if (driver) {
         await driver.quit();
       }
+    }
+  }
+
+  private async extractFromJson(driver: WebDriver, query: string): Promise<ProductResult[]> {
+    try {
+      const results = await driver.executeScript(`
+        try {
+          const data = window.__NEXT_DATA__ || JSON.parse(document.getElementById('__NEXT_DATA__')?.textContent || '{}');
+          if (!data || !data.props) return [];
+          const queries = data.props.pageProps?.dehydratedState?.queries;
+          if (!queries) return [];
+          for (const q of queries) {
+            const items = q?.state?.data?.pages?.[0]?.productCatalogItems?.items
+              || q?.state?.data?.items
+              || q?.state?.data?.products;
+            if (items && Array.isArray(items) && items.length > 0) {
+              return items.map(item => ({
+                name: item.name || '',
+                price: item.price?.amount || item.price,
+                priceValue: item.price?.amount || (typeof item.price === 'number' ? item.price : parseFloat(String(item.price).replace(/[^0-9.]/g, ''))),
+                imageUrl: item.image?.src || item.image || '',
+                url: item.url || item.slug || '',
+              })).filter(p => p.name && p.priceValue > 0);
+            }
+          }
+          return [];
+        } catch(e) { return []; }
+      `);
+
+      if (!results || !Array.isArray(results) || results.length === 0) return [];
+
+      return results.map((item: any) => ({
+        name: String(item.name || '').trim(),
+        price: `R ${Number(item.priceValue).toFixed(2)}`,
+        priceValue: Number(item.priceValue) || 0,
+        store: this.store,
+        url: item.url ? (item.url.startsWith('http') ? item.url : `${this.baseUrl}${item.url}`) : '',
+        imageUrl: item.imageUrl ? (item.imageUrl.startsWith('http') ? item.imageUrl : `https:${item.imageUrl}`) : undefined,
+        inStock: true,
+      })).filter((p: ProductResult) => p.name && p.priceValue > 0 && isFinite(p.priceValue) && isValidProductName(p.name));
+    } catch {
+      return [];
     }
   }
 

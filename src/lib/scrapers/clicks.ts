@@ -6,7 +6,6 @@ import type { ProductResult, ScraperResult } from '@/types';
 const SELENIUM_URL = process.env.SELENIUM_URL || 'http://localhost:4444';
 const MAX_CONCURRENT_SCRAPES = parseInt(process.env.MAX_CONCURRENT_SCRAPES || '3', 10);
 
-// ── Concurrency semaphore ─────────────────────────────────────────────────────
 let activeScrapes = 0;
 const queue: Array<() => void> = [];
 
@@ -66,6 +65,8 @@ export class ClicksScraper extends BaseScraper {
         .setChromeOptions(options)
         .build();
 
+      driver.manage().setTimeouts({ pageLoad: 20000, script: 10000, implicit: 5000 });
+
       await driver.executeScript(
         "Object.defineProperty(navigator, 'webdriver', { get: () => undefined })"
       );
@@ -74,27 +75,22 @@ export class ClicksScraper extends BaseScraper {
       console.error(`[Clicks] Navigating: ${searchUrl}`);
       await driver.get(searchUrl);
 
-      // Accept cookie banner if present
       try {
-        const acceptBtn = await driver.findElement(By.css('button:has-text("Accept all"), button:has-text("Accept"), .cookie-accept-btn, #cookie-accept'));
+        const acceptBtn = await driver.findElement(
+          By.css('button:has-text("Accept all"), button:has-text("Accept"), .cookie-accept-btn, #cookie-accept')
+        );
         await acceptBtn.click();
         await this.sleep(2000);
-      } catch {
-        // No cookie banner or already accepted
-      }
+      } catch {}
 
-      // Wait for product list to render
       try {
         await driver.wait(
-          until.elementLocated(By.css('[data-testid="product-card"], .productCard, article, li.product-item')),
+          until.elementLocated(By.css('[data-testid="product-card"], .productCard, article, li.product-item, [class*="ais-InfiniteHits"] li')),
           30000
         );
       } catch {
         try {
-          await driver.wait(
-            until.elementLocated(By.css('[class*="product"]')),
-            20000
-          );
+          await driver.wait(until.elementLocated(By.css('[class*="product"]')), 20000);
         } catch {
           const source = await driver.getPageSource();
           if (source.includes('no results') || source.includes('No results') || source.includes('0 results')) {
@@ -105,49 +101,66 @@ export class ClicksScraper extends BaseScraper {
         }
       }
 
-      await this.sleep(4000);
+      await this.sleep(3000);
 
-      // Collect product containers — Clicks uses list items in search results
+      // Find product containers – Clicks uses li elements in search results
       const containers = await driver.findElements(
-        By.css('[class*="ais-InfiniteHits"] li, [class*="search-result"] li, ul[class*="list"] > li, li[class*="item"], article')
+        By.css('[class*="ais-InfiniteHits"] > div > div > div > div > li, [class*="ais-InfiniteHits"] li, li[class*="item"], article')
       );
       console.error(`[Clicks] Found ${containers.length} product containers`);
 
       const products: ProductResult[] = [];
 
-      for (const container of containers) {
+      // Limit to first 40 to avoid noise
+      const maxItems = Math.min(containers.length, 40);
+
+      for (let i = 0; i < maxItems; i++) {
+        const container = containers[i];
         try {
-          // Product name — try heading + paragraph combo first (brand + description)
           let name = '';
+          let url = '';
+
+          // Primary: get full name from link title attribute
           try {
-            const heading = await container.findElement(By.css('h5, h4, h3, [class*="title"] a, a[class*="name"]'));
-            name = (await heading.getText()).trim();
+            const link = await container.findElement(By.css('a[href*="/p/"], a[href*="/product"]'));
+            const title = await link.getAttribute('title');
+            if (title && title.trim().length > 5) {
+              name = title.trim();
+            } else {
+              name = (await link.getText()).trim();
+            }
+            url = await link.getAttribute('href');
+            if (url && !url.startsWith('http')) {
+              url = `${this.baseUrl}${url}`;
+            }
           } catch {
+            // Secondary: brand + description combo
             try {
-              const links = await container.findElements(By.css('a'));
-              for (const link of links) {
-                const href = await link.getAttribute('href');
-                if (href && href.includes('/p/')) {
-                  name = (await link.getText()).trim();
-                  if (name) break;
-                }
-              }
+              const brand = await container.findElement(By.css('h5, [class*="brand"]'));
+              const desc = await container.findElement(By.css('p, [class*="description"]'));
+              const brandText = (await brand.getText()).trim();
+              const descText = (await desc.getText()).trim();
+              name = `${brandText} ${descText}`.trim();
             } catch {
-              // try img alt
+              // Tertiary: just any link or text
               try {
-                const img = await container.findElement(By.css('img'));
-                name = (await img.getAttribute('alt')) || '';
-              } catch {
-                // skip
-              }
+                const links = await container.findElements(By.css('a'));
+                for (const link of links) {
+                  name = (await link.getText()).trim();
+                  if (name) {
+                    url = await link.getAttribute('href');
+                    if (url && !url.startsWith('http')) url = `${this.baseUrl}${url}`;
+                    break;
+                  }
+                }
+              } catch {}
             }
           }
 
-          if (!name) {
-            // Try getting the full text and extracting product name
+          if (!name || name.length < 5) {
+            // Last resort: text extraction
             const text = await container.getText();
             const lines = text.split('\n').filter((l) => l.trim());
-            // Name is usually the longest line that's not a price
             name = lines.find(
               (l) => !/^R\s*[\d,]+/.test(l) && l.length > 10 && !l.includes('delivery') && !l.includes('review')
             ) || '';
@@ -155,10 +168,11 @@ export class ClicksScraper extends BaseScraper {
 
           if (!name) continue;
 
-          // Price
           let priceText = '';
           try {
-            const priceEl = await container.findElement(By.css('[class*="price"], span.price, .price-box, strong:has-text("R"), [class*="Price"]'));
+            const priceEl = await container.findElement(
+              By.css('[class*="price"], span.price, .price-box, [class*="Price"]')
+            );
             priceText = (await priceEl.getText()).trim();
           } catch {
             const text = await container.getText();
@@ -168,36 +182,13 @@ export class ClicksScraper extends BaseScraper {
 
           if (!priceText) continue;
           const priceValue = this.normalizePrice(priceText);
-          if (priceValue === 0) continue;
+          if (priceValue === 0 || !isFinite(priceValue)) continue;
 
-          // URL
-          let url = '';
-          try {
-            const link = await container.findElement(By.css('a[href*="/p/"]'));
-            url = await link.getAttribute('href');
-            if (url && !url.startsWith('http')) {
-              url = `${this.baseUrl}${url}`;
-            }
-          } catch {
-            try {
-              const link = await container.findElement(By.css('a'));
-              url = await link.getAttribute('href');
-              if (url && !url.startsWith('http')) {
-                url = `${this.baseUrl}${url}`;
-              }
-            } catch {
-              // no URL
-            }
-          }
-
-          // Image
           let imageUrl = '';
           try {
             const img = await container.findElement(By.css('img[src*="/medias/"], img'));
             imageUrl = await img.getAttribute('src');
-          } catch {
-            // no image
-          }
+          } catch {}
 
           products.push({
             name,
@@ -208,9 +199,7 @@ export class ClicksScraper extends BaseScraper {
             imageUrl: imageUrl || undefined,
             inStock: true,
           });
-        } catch {
-          // skip malformed container
-        }
+        } catch {}
       }
 
       return products;

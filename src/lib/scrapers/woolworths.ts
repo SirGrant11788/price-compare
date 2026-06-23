@@ -6,7 +6,6 @@ import type { ProductResult, ScraperResult } from '@/types';
 const SELENIUM_URL = process.env.SELENIUM_URL || 'http://localhost:4444';
 const MAX_CONCURRENT_SCRAPES = parseInt(process.env.MAX_CONCURRENT_SCRAPES || '3', 10);
 
-// ── Concurrency semaphore ─────────────────────────────────────────────────────
 let activeScrapes = 0;
 const queue: Array<() => void> = [];
 
@@ -66,6 +65,8 @@ export class WoolworthsScraper extends BaseScraper {
         .setChromeOptions(options)
         .build();
 
+      driver.manage().setTimeouts({ pageLoad: 20000, script: 10000, implicit: 5000 });
+
       await driver.executeScript(
         "Object.defineProperty(navigator, 'webdriver', { get: () => undefined })"
       );
@@ -74,30 +75,27 @@ export class WoolworthsScraper extends BaseScraper {
       console.error(`[Woolworths] Navigating: ${searchUrl}`);
       await driver.get(searchUrl);
 
-      // Accept cookie banner if present
+      // Accept cookie banner
       try {
-        const acceptBtn = await driver.findElement(By.css('button:has-text("Accept"), button:has-text("dismiss"), [class*="cookie"] button, #cookie-accept, .cookie-btn'));
+        const acceptBtn = await driver.findElement(
+          By.css('button:has-text("Accept"), button:has-text("dismiss"), [class*="cookie"] button, #cookie-accept, .cookie-btn')
+        );
         await acceptBtn.click();
         await this.sleep(2000);
-      } catch {
-        // No cookie banner
-      }
+      } catch {}
 
-      // Wait for product articles to render
+      // Wait for rendering
       try {
-        await driver.wait(
-          until.elementLocated(By.css('article')),
-          30000
-        );
+        await driver.wait(until.elementLocated(By.css('article, [class*="product"]')), 30000);
       } catch {
         try {
           await driver.wait(
-            until.elementLocated(By.css('[class*="product"], [class*="Product"], [data-testid*="product"]')),
+            until.elementLocated(By.css('[class*="Product"], [data-testid*="product"]')),
             20000
           );
         } catch {
           const source = await driver.getPageSource();
-          if (source.includes('no results') || source.includes('No results') || source.includes('0 results') || source.includes('found for')) {
+          if (source.includes('no results') || source.includes('No results') || source.includes('0 results')) {
             return [];
           }
           console.error('[Woolworths] No product elements found');
@@ -107,7 +105,15 @@ export class WoolworthsScraper extends BaseScraper {
 
       await this.sleep(4000);
 
-      // Collect product articles
+      // PRIMARY: Extract from __NEXT_DATA__ JSON (most reliable)
+      const jsonProducts = await this.extractFromNextData(driver, query);
+      if (jsonProducts.length > 0) {
+        console.error(`[Woolworths] Found ${jsonProducts.length} products via __NEXT_DATA__`);
+        return jsonProducts;
+      }
+
+      // FALLBACK: DOM extraction
+      console.error('[Woolworths] Falling back to DOM extraction');
       const articles = await driver.findElements(By.css('article'));
       console.error(`[Woolworths] Found ${articles.length} product articles`);
 
@@ -115,15 +121,14 @@ export class WoolworthsScraper extends BaseScraper {
 
       for (const article of articles) {
         try {
-          // Product name
           let name = '';
           try {
-            // Try clickable title elements
-            const titleEl = await article.findElement(By.css('[class*="cursor-pointer"], a[class*="title"], [class*="name"], h3, h2'));
+            const titleEl = await article.findElement(
+              By.css('[class*="cursor-pointer"], a[class*="title"], [class*="name"], h3, h2')
+            );
             name = (await titleEl.getText()).trim();
           } catch {
             try {
-              // Fallback to any link or span with product-related class
               const links = await article.findElements(By.css('a, span, div'));
               for (const el of links) {
                 const text = (await el.getText()).trim();
@@ -132,26 +137,22 @@ export class WoolworthsScraper extends BaseScraper {
                   break;
                 }
               }
-            } catch {
-              // skip
-            }
+            } catch {}
           }
 
           if (!name) {
-            // Try extracting from article text
             const text = await article.getText();
             const lines = text.split('\n').filter((l) => l.trim());
-            name = lines.find(
-              (l) => l.length > 15 && !/^R\s*[\d,]+/.test(l)
-            ) || '';
+            name = lines.find((l) => l.length > 15 && !/^R\s*[\d,]+/.test(l)) || '';
           }
 
           if (!name) continue;
 
-          // Price
           let priceText = '';
           try {
-            const priceEl = await article.findElement(By.css('strong, [class*="price"], [class*="Price"], span[class*="currency"]'));
+            const priceEl = await article.findElement(
+              By.css('strong, [class*="price"], [class*="Price"], span[class*="currency"]')
+            );
             priceText = (await priceEl.getText()).trim();
           } catch {
             const text = await article.getText();
@@ -161,33 +162,27 @@ export class WoolworthsScraper extends BaseScraper {
 
           if (!priceText) continue;
           const priceValue = this.normalizePrice(priceText);
-          if (priceValue === 0) continue;
+          if (priceValue === 0 || !isFinite(priceValue)) continue;
 
-          // URL
           let url = '';
           try {
-            const link = await article.findElement(By.css('a[href*="/product"], a[href*="/browse"], a[href*="/dept"]'));
+            const link = await article.findElement(
+              By.css('a[href*="/product"], a[href*="/browse"], a[href*="/dept"]')
+            );
             url = await link.getAttribute('href');
-            if (url && !url.startsWith('http')) {
-              url = `${this.baseUrl}${url}`;
-            }
+            if (url && !url.startsWith('http')) url = `${this.baseUrl}${url}`;
           } catch {
             try {
               const link = await article.findElement(By.css('a'));
               url = await link.getAttribute('href');
-            } catch {
-              // no URL
-            }
+            } catch {}
           }
 
-          // Image
           let imageUrl = '';
           try {
             const img = await article.findElement(By.css('img[src*="/images/"], img[src*="/medias/"], img'));
             imageUrl = await img.getAttribute('src');
-          } catch {
-            // no image
-          }
+          } catch {}
 
           products.push({
             name,
@@ -198,9 +193,7 @@ export class WoolworthsScraper extends BaseScraper {
             imageUrl: imageUrl || undefined,
             inStock: true,
           });
-        } catch {
-          // skip malformed article
-        }
+        } catch {}
       }
 
       return products;
@@ -208,6 +201,48 @@ export class WoolworthsScraper extends BaseScraper {
       if (driver) {
         await driver.quit();
       }
+    }
+  }
+
+  private async extractFromNextData(driver: WebDriver, _query: string): Promise<ProductResult[]> {
+    try {
+      const results = await driver.executeScript(`
+        try {
+          const script = document.getElementById('__NEXT_DATA__');
+          if (!script || !script.textContent) return [];
+          const data = JSON.parse(script.textContent);
+          const queries = data?.props?.pageProps?.dehydratedState?.queries;
+          if (!queries || !Array.isArray(queries)) return [];
+
+          for (const q of queries) {
+            const items = q?.state?.data?.pages?.[0]?.productCatalogItems?.items;
+            if (items && Array.isArray(items) && items.length > 0) {
+              return items.map(item => ({
+                name: item.name || '',
+                price: item.price?.amount,
+                priceValue: item.price?.amount,
+                imageUrl: item.image?.src ? 'https:' + item.image.src : '',
+                url: item.url ? 'https://www.woolworths.co.za' + item.url : '',
+              })).filter(p => p.name && p.priceValue > 0);
+            }
+          }
+          return [];
+        } catch(e) { return []; }
+      `);
+
+      if (!results || !Array.isArray(results) || results.length === 0) return [];
+
+      return results.map((item: any) => ({
+        name: String(item.name || '').trim(),
+        price: `R ${Number(item.priceValue).toFixed(2)}`,
+        priceValue: Number(item.priceValue) || 0,
+        store: this.store,
+        url: String(item.url || ''),
+        imageUrl: item.imageUrl ? String(item.imageUrl) : undefined,
+        inStock: true,
+      })).filter((p: ProductResult) => p.name && p.priceValue > 0 && isFinite(p.priceValue));
+    } catch {
+      return [];
     }
   }
 
