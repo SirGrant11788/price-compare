@@ -129,7 +129,7 @@ export class ClicksScraper extends BaseScraper {
             } else {
               name = (await link.getText()).trim();
             }
-            url = await link.getAttribute('href');
+            url = (await link.getAttribute('href')) || '';
             if (url && !url.startsWith('http')) {
               url = `${this.baseUrl}${url}`;
             }
@@ -148,7 +148,7 @@ export class ClicksScraper extends BaseScraper {
                 for (const link of links) {
                   name = (await link.getText()).trim();
                   if (name) {
-                    url = await link.getAttribute('href');
+                    url = (await link.getAttribute('href')) || '';
                     if (url && !url.startsWith('http')) url = `${this.baseUrl}${url}`;
                     break;
                   }
@@ -187,7 +187,7 @@ export class ClicksScraper extends BaseScraper {
           let imageUrl = '';
           try {
             const img = await container.findElement(By.css('img[src*="/medias/"], img'));
-            imageUrl = await img.getAttribute('src');
+            imageUrl = (await img.getAttribute('src')) || '';
           } catch {}
 
           products.push({
