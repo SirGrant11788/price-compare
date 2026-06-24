@@ -165,18 +165,18 @@ export class DischemScraper extends BaseScraper {
           let url = '';
           try {
             const linkEl = await container.findElement(By.css('a.product-item-link'));
-            url = await linkEl.getAttribute('href');
+            url = (await linkEl.getAttribute('href')) || '';
           } catch {
             try {
               const linkEl = await container.findElement(By.css('a[href*="/"]'));
-              url = await linkEl.getAttribute('href');
+              url = (await linkEl.getAttribute('href')) || '';
             } catch {}
           }
 
           let imageUrl = '';
           try {
             const imgEl = await container.findElement(By.css('img.product-image-photo'));
-            imageUrl = await imgEl.getAttribute('src');
+            imageUrl = (await imgEl.getAttribute('src')) || '';
           } catch {}
 
           products.push({

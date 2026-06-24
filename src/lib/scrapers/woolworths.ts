@@ -169,19 +169,19 @@ export class WoolworthsScraper extends BaseScraper {
             const link = await article.findElement(
               By.css('a[href*="/product"], a[href*="/browse"], a[href*="/dept"]')
             );
-            url = await link.getAttribute('href');
+            url = (await link.getAttribute('href')) || '';
             if (url && !url.startsWith('http')) url = `${this.baseUrl}${url}`;
           } catch {
             try {
               const link = await article.findElement(By.css('a'));
-              url = await link.getAttribute('href');
+              url = (await link.getAttribute('href')) || '';
             } catch {}
           }
 
           let imageUrl = '';
           try {
             const img = await article.findElement(By.css('img[src*="/images/"], img[src*="/medias/"], img'));
-            imageUrl = await img.getAttribute('src');
+            imageUrl = (await img.getAttribute('src')) || '';
           } catch {}
 
           products.push({
