@@ -54,11 +54,6 @@ export default function ComparisonTable({ groups, query }: ComparisonTableProps)
 }
 
 function ProductRow({ group, index }: { group: ComparisonGroup; index: number }) {
-  const prices = Object.values(group.byStore)
-    .filter((p): p is NonNullable<typeof p> => p !== null)
-    .map((p) => p.priceValue);
-  const minPrice = prices.length > 0 ? Math.min(...prices) : 0;
-
   return (
     <div className="flex border-b border-gray-100 transition hover:bg-blue-50/30 last:border-b-0">
       {/* Row number */}
@@ -80,23 +75,11 @@ function ProductRow({ group, index }: { group: ComparisonGroup; index: number })
           );
         }
 
-        const isCheapest = product.priceValue === minPrice && prices.length > 1;
-
         return (
           <div
             key={store}
-            className={`relative flex flex-1 flex-col gap-2 border-r p-3 last:border-r-0 ${
-              isCheapest ? 'bg-green-50/60' : ''
-            }`}
+            className="relative flex flex-1 flex-col gap-2 border-r p-3 last:border-r-0"
           >
-            {isCheapest && (
-              <div className="absolute -right-px -top-px z-10">
-                <span className="inline-flex items-center gap-1 rounded-bl-lg rounded-tr-lg bg-green-600 px-2 py-0.5 text-[10px] font-bold text-white shadow-sm">
-                  BEST
-                </span>
-              </div>
-            )}
-
             {/* Image */}
             {product.imageUrl && (
               <div className="flex h-14 w-full items-center justify-center overflow-hidden rounded-md bg-gray-50">
@@ -129,11 +112,7 @@ function ProductRow({ group, index }: { group: ComparisonGroup; index: number })
 
             {/* Price */}
             <div className="flex items-center justify-between gap-1">
-              <span
-                className={`text-base font-bold ${
-                  isCheapest ? 'text-green-700' : 'text-gray-900'
-                }`}
-              >
+              <span className="text-base font-bold text-gray-900">
                 {product.price}
               </span>
             </div>
