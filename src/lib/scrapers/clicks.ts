@@ -57,7 +57,7 @@ export class ClicksScraper extends BaseScraper {
       );
       options.addArguments('--window-size=1920,1080');
       options.addArguments('--start-minimized');
-      options.excludeSwitches(['enable-automation']);
+      options.excludeSwitches('enable-automation');
 
       driver = await new Builder()
         .forBrowser('chrome')
