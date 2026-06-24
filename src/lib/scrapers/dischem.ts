@@ -115,11 +115,8 @@ export class DischemScraper extends BaseScraper {
 
       await this.sleep(3000);
 
-      // Try JSON-LD extraction first
-      const jsonProducts = await this.extractFromJson(driver, query);
-      if (jsonProducts.length > 0) {
-        return jsonProducts;
-      }
+      // Skip JSON extraction for Magento - go straight to DOM
+      const jsonProducts: ProductResult[] = [];
 
       // Fallback to DOM extraction
       const containers = await driver.findElements(
@@ -240,51 +237,6 @@ export class DischemScraper extends BaseScraper {
       if (driver) {
         await driver.quit();
       }
-    }
-  }
-
-  private async extractFromJson(driver: WebDriver, query: string): Promise<ProductResult[]> {
-    try {
-      const results = await driver.executeAsyncScript(`
-        const callback = arguments[arguments.length - 1];
-        try {
-          const data = window.__NEXT_DATA__ || JSON.parse(document.getElementById('__NEXT_DATA__')?.textContent || '{}');
-          if (!data || !data.props) { callback([]); return; }
-          const queries = data.props.pageProps?.dehydratedState?.queries;
-          if (!queries) { callback([]); return; }
-          for (const q of queries) {
-            const items = q?.state?.data?.pages?.[0]?.productCatalogItems?.items
-              || q?.state?.data?.items
-              || q?.state?.data?.products;
-            if (items && Array.isArray(items) && items.length > 0) {
-              const mapped = items.map(item => ({
-                name: item.name || '',
-                price: item.price?.amount || item.price,
-                priceValue: item.price?.amount || (typeof item.price === 'number' ? item.price : parseFloat(String(item.price).replace(/[^0-9.]/g, ''))),
-                imageUrl: item.image?.src || item.image || '',
-                url: item.url || item.slug || '',
-              })).filter(p => p.name && p.priceValue > 0);
-              callback(mapped);
-              return;
-            }
-          }
-          callback([]);
-        } catch(e) { callback([]); }
-      `);
-
-      if (!results || !Array.isArray(results) || results.length === 0) return [];
-
-      return results.map((item: any) => ({
-        name: String(item.name || '').trim(),
-        price: `R ${Number(item.priceValue).toFixed(2)}`,
-        priceValue: Number(item.priceValue) || 0,
-        store: this.store,
-        url: item.url ? (item.url.startsWith('http') ? item.url : `${this.baseUrl}${item.url}`) : '',
-        imageUrl: item.imageUrl ? (item.imageUrl.startsWith('http') ? item.imageUrl : `https:${item.imageUrl}`) : undefined,
-        inStock: true,
-      })).filter((p: ProductResult) => p.name && p.priceValue > 0 && isFinite(p.priceValue) && isValidProductName(p.name));
-    } catch {
-      return [];
     }
   }
 
