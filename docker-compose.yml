@@ -1,41 +1,72 @@
-services:
-  chrome:
-    image: selenium/standalone-chrome:latest
-    container_name: price-compare-chrome
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "/opt/bin/check-grid.sh", "--host", "0.0.0.0", "--port", "4444"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 30s
-    environment:
-      TZ: Africa/Johannesburg
-      SE_NODE_MAX_SESSIONS: 5
-      SE_NODE_SESSION_TIMEOUT: 300
-      SE_VNC_NO_PASSWORD: 1
-    shm_size: 2gb
-    ports:
-      - "4444:4444"
-      - "7900:7900"
+# =============================================================================
+# price-compare — Docker Compose
+# =============================================================================
+# Spins up the price-compare Next.js app, a Redis cache, and a Selenium
+# Grid Chrome node (required by the Dis-Chem scraper).
+#
+# The Checkers scraper depends on an external Sixty60-Search microservice
+# (separate repo). Set CHECKERS_API_URL to point at it — default is the
+# same host's port 3001, which works when that service is running alongside.
+# =============================================================================
 
+services:
+  # ── Next.js App ────────────────────────────────────────────────────
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: price-compare:latest
+    container_name: price-compare
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
+      REDIS_URL: redis://redis:6379
+      SELENIUM_URL: http://selenium:4444
+      CHECKERS_API_URL: ${CHECKERS_API_URL:-http://host.docker.internal:3001}
+    depends_on:
+      redis:
+        condition: service_started
+      selenium:
+        condition: service_started
+    restart: unless-stopped
+
+  # ── Redis Cache ────────────────────────────────────────────────────
   redis:
     image: redis:7-alpine
     container_name: price-compare-redis
     restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 10s
-    environment:
-      TZ: Africa/Johannesburg
-    volumes:
-      - redis-data:/data
     ports:
       - "6379:6379"
-    command: redis-server --appendonly yes --maxmemory 200mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # ── Selenium Grid (Chrome) ─────────────────────────────────────────
+  selenium:
+    image: selenium/standalone-chrome:latest
+    container_name: price-compare-selenium
+    shm_size: 2gb
+    restart: unless-stopped
+    ports:
+      - "4444:4444"
+    environment:
+      SE_NODE_MAX_SESSIONS: 3
+      SE_VNC_PASSWORD: ${SE_VNC_PASSWORD:-}
+      SE_SESSION_REQUEST_TIMEOUT: 60
+      SE_OPTS: "--session-timeout 60"
+    volumes:
+      - /dev/shm:/dev/shm
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:4444/status"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
 
 volumes:
   redis-data:
