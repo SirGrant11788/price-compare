@@ -28,3 +28,47 @@ export interface ScraperConfig {
   searchPath: string;
   cacheTTL?: number;
 }
+
+// ── Bulk search ──────────────────────────────────────────────────────────────
+
+export interface SingleProductResult {
+  query: string;
+  groups: ComparisonGroup[];
+  results: ScraperResult[];
+  totalResults: number;
+  timestamp: string;
+}
+
+export interface BulkSearchResponse {
+  results: SingleProductResult[];
+  totalQueries: number;
+  timestamp: string;
+}
+
+// ── Comparison groups (re-exported from fuzzy.ts for convenience) ────────────
+
+export interface ComparisonGroup {
+  displayName: string;
+  avgPrice: number;
+  matchScore: number;
+  fingerprint: string;
+  byStore: Record<string, ProductResult | null>;
+  stores: string[];
+  matchCount: number;
+}
+
+// ── Export ───────────────────────────────────────────────────────────────────
+
+export interface ExportRow {
+  productName: string;
+  store: string;
+  price: string;
+  priceValue: number;
+  url: string;
+  inStock: boolean;
+}
+
+export interface ExportSheet {
+  name: string;
+  rows: ExportRow[];
+}
