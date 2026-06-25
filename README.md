@@ -1,6 +1,6 @@
 # Price Compare
 
-Multi-store price comparison tool. Currently scrapes Clicks, Dis-Chem, Checkers, and Takealot.
+Multi-store price comparison tool. Currently scrapes Clicks, Dis-Chem, Checkers, and PnP.
 
 ## Tech Stack
 
