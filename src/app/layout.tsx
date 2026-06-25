@@ -15,7 +15,7 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Price Compare",
   description:
-    "Compare product prices across Checkers Sixty60, Dis-Chem, Clicks, and Woolworths.",
+    "Compare product prices across Checkers Sixty60, Dis-Chem, Clicks, Woolworths, and Pick n Pay.",
 };
 
 export default function RootLayout({

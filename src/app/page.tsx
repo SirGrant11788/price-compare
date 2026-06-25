@@ -4,6 +4,7 @@ import { useState, useCallback, FormEvent, useRef } from 'react';
 import type { ScraperResult } from '@/types';
 import { buildComparisonGroups, type ComparisonGroup } from '@/lib/fuzzy';
 import ComparisonTable from '@/components/ComparisonTable';
+import { STORE_COLORS, DEFAULT_STORE_COLOR } from '@/lib/constants';
 
 interface SearchData {
   query: string;
@@ -207,7 +208,7 @@ export default function Home() {
             Price Compare
           </h1>
           <p className="mt-2 text-base text-gray-500">
-            Compare prices across Checkers, Dis-Chem, Clicks &amp; Woolworths
+            Compare prices across Checkers, Dis-Chem, Clicks, Woolworths &amp; Pick n Pay
           </p>
         </div>
 
@@ -332,13 +333,7 @@ export default function Home() {
                             className="rounded-full px-2.5 py-0.5 text-xs font-medium text-white"
                             style={{
                               backgroundColor:
-                                r.store === 'Checkers'
-                                  ? '#16a34a'
-                                  : r.store === 'Dis-Chem'
-                                    ? '#2563eb'
-                                    : r.store === 'Clicks'
-                                      ? '#9333ea'
-                                      : '#ea580c',
+                                STORE_COLORS[r.store] ?? DEFAULT_STORE_COLOR,
                             }}
                           >
                             {r.store} ({r.products.length})
@@ -520,13 +515,7 @@ export default function Home() {
                               className="rounded-full px-2 py-0.5 text-[10px] font-medium text-white"
                               style={{
                                 backgroundColor:
-                                  r.store === 'Checkers'
-                                    ? '#16a34a'
-                                    : r.store === 'Dis-Chem'
-                                      ? '#2563eb'
-                                      : r.store === 'Clicks'
-                                        ? '#9333ea'
-                                        : '#ea580c',
+                                  STORE_COLORS[r.store] ?? DEFAULT_STORE_COLOR,
                               }}
                             >
                               {r.store} ({r.products.length})

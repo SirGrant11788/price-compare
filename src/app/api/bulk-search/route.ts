@@ -2,6 +2,7 @@ import { CheckersScraper } from '@/lib/scrapers/checkers';
 import { DischemScraper } from '@/lib/scrapers/dischem';
 import { ClicksScraper } from '@/lib/scrapers/clicks';
 import { WoolworthsScraper } from '@/lib/scrapers/woolworths';
+import { PnpScraper } from '@/lib/scrapers/pnp';
 import { mergeResults } from '@/lib/fuzzy';
 import { initRedis, getCached, setCached, cacheKey, closeRedis } from '@/lib/redis';
 import { BaseScraper } from '@/lib/scrapers/base';
@@ -14,6 +15,7 @@ const scrapers: BaseScraper[] = [
   new DischemScraper(),
   new ClicksScraper(),
   new WoolworthsScraper(),
+  new PnpScraper(),
 ];
 
 /**
