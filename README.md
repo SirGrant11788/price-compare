@@ -27,7 +27,3 @@ Enter multiple products, one per line, to compare prices across all stores simul
 ## Excel Export
 
 Results from single searches or bulk searches can be downloaded as `.xlsx` with one sheet per product and a combined summary sheet.
-
-## meep
-
-apple
